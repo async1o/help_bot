@@ -1,18 +1,37 @@
 import logging
 
 from aiogram import Router, F
-from aiogram.types import Message, ReplyKeyboardRemove, CallbackQuery
+from aiogram.types import Message, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 
-from src.db.repositories import UserRepository, AdminRepository
+from src.db.repositories import UserRepository
 from src.schemas.users import UserSchema
 from src.states.sos_states import SosStates
 from src.keyboards.sos import confirmation_kb, cancel_message, all_right_message
-from src.methods.choose_operator import choose_operator
+from src.services.dialog_service import DialogService
+from src.services.support_service import SupportService
+from src.filters.in_dialog import IsUserInDialog
 
 router = Router()
-
 logger = logging.getLogger('UsersHandlers')
+_support = SupportService()
+
+
+@router.message(IsUserInDialog())
+async def forward_user_message_to_operator(message: Message):
+    """Пересылает сообщение пользователя оператору, когда идёт диалог."""
+    operator_id = DialogService.get_operator_for_user(str(message.from_user.id))
+    if not operator_id:
+        return
+    try:
+        await message.bot.copy_message(
+            chat_id=operator_id,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+    except Exception as e:
+        logger.exception('Не удалось переслать сообщение пользователя оператору: %s', e)
+
 
 @router.message(F.text == '/start')
 async def start(message: Message):
@@ -56,14 +75,20 @@ async def cancel_answer(message: Message, state: FSMContext):
 @router.message(F.text == all_right_message, SosStates.sumbit)
 async def apply_answer(message: Message, state: FSMContext):
     try:
-        await choose_operator(bot=message.bot, request=await state.get_data(), sender_id=message.from_user.id)
-        
-        await message.answer(text='Запрос отправлен!', reply_markup=ReplyKeyboardRemove())
-
+        data = await state.get_data()
+        request_id = await _support.notify_operators(
+            message.bot, data.get('sumbit', ''), message.from_user.id
+        )
+        if request_id:
+            await message.answer(text='Запрос отправлен!', reply_markup=ReplyKeyboardRemove())
+        else:
+            await message.answer(
+                text='К сожалению, сейчас нет доступных операторов. Попробуйте позже.',
+                reply_markup=ReplyKeyboardRemove()
+            )
     except Exception as e:
-        logger.error(msg=e)
+        logger.exception('apply_answer: %s', e)
         await message.answer(text='Что-то пошло не так', reply_markup=ReplyKeyboardRemove())
-
     finally:
         await state.clear()
 

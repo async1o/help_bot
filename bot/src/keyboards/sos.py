@@ -9,8 +9,9 @@ def confirmation_kb() -> ReplyKeyboardMarkup:
     ]
     return ReplyKeyboardMarkup(keyboard=buttons)
 
-def operator_request_kb() -> InlineKeyboardMarkup:
+def operator_request_kb(request_id: str) -> InlineKeyboardMarkup:
+    # callback_data до 64 байт; префикс + UUID (36) = 50 символов
     buttons = [
-        [InlineKeyboardButton(text='✅ Принять', callback_data='start_diolog')]
+        [InlineKeyboardButton(text='✅ Принять', callback_data=f'accept:{request_id}')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

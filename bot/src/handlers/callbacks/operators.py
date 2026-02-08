@@ -1,24 +1,35 @@
+"""Принятие обращения оператором."""
+
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 
-from src.db.repositories import MsgRepository
+from src.services.support_service import SupportService
+from src.services.dialog_service import DialogService
 
 router = Router()
+_support = SupportService()
+
+DIALOG_STARTED_OPERATOR = (
+    'Диалог начат с пользователем. Все ваши сообщения будут пересланы ему. '
+    'Для завершения диалога введите /stop_dialog'
+)
+DIALOG_STARTED_USER = 'С вами связался оператор. Опишите вашу проблему.'
 
 
+@router.callback_query(F.data.startswith('accept:'))
+async def accept_request(callback: CallbackQuery):
+    request_id = callback.data[7:].strip()
+    if not request_id or len(request_id) > 64:
+        await callback.answer('Ошибка данных.')
+        return
 
-@router.callback_query(F.data == 'start_diolog')
-async def delete_messages(callback: CallbackQuery):
-    text = callback.message.text
-    messages = await MsgRepository().get_message(text=text)
+    operator_id = str(callback.from_user.id)
+    sender_id = await _support.accept_request(callback.bot, request_id, operator_id)
 
-    for message in messages:
-        await callback.bot.delete_message(chat_id=message[0].operator_id, message_id=message[0].message_id)
-    
-    await MsgRepository().delete_message(text=text)
+    if sender_id is None:
+        await callback.answer('Обращение уже принято другим оператором.')
+        return
 
-    await start_diolog(messages[0][0].sender_id, callback.from_user.id)
-
-
-async def start_diolog(sender_id, operator_id):
-    print(sender_id, operator_id)
+    await callback.bot.send_message(chat_id=operator_id, text=DIALOG_STARTED_OPERATOR)
+    await callback.bot.send_message(chat_id=sender_id, text=DIALOG_STARTED_USER)
+    await callback.answer('Вы приняли обращение.')

@@ -1,5 +1,5 @@
 import logging
-from typing import List
+import time
 
 from sqlalchemy import insert, select, update, delete
 
@@ -37,6 +37,10 @@ class UserRepository:
                 pass
     
 class AdminRepository:
+    _operators_cache: list | None = None
+    _operators_cache_ts: float = 0
+    _OPERATORS_CACHE_TTL = 30.0  # секунд
+
     async def add_start_admins(self):
         for admin_id in settings.ADMINS.split(','):
             await UserRepository().add_user(
@@ -47,56 +51,55 @@ class AdminRepository:
                 )
             )
         logger.info(msg='Admins added to DB')
-    
+
     async def get_admins(self):
         async with async_session_maker() as session:
             stmt = select(UserModel.user_id).where(UserModel.is_admin == True)
-
             res = await session.execute(stmt)
-
             return res.all()
 
-
     async def update_roles(self, user_id: str, add: bool, operator: bool):
+        if not await UserRepository().get_user_by_id(user_id):
+            raise NotImplementedError
         async with async_session_maker() as session:
-            
-            if not await UserRepository().get_user_by_id(user_id):
-                raise NotImplementedError
-            
             role = 'is_operator' if operator else 'is_admin'
-
             stmt = update(UserModel).where(UserModel.user_id == user_id).values({role: add})
             await session.execute(stmt)
             await session.commit()
+        if operator:
+            AdminRepository._operators_cache = None
 
-    async def get_all_operators(self):
+    async def get_all_operators(self) -> list:
+        now = time.monotonic()
+        if (
+            AdminRepository._operators_cache is not None
+            and (now - AdminRepository._operators_cache_ts) < self._OPERATORS_CACHE_TTL
+        ):
+            return AdminRepository._operators_cache
         async with async_session_maker() as session:
             stmt = select(UserModel.user_id).where(UserModel.is_operator == True)
             res = (await session.execute(stmt)).all()
+            AdminRepository._operators_cache = res
+            AdminRepository._operators_cache_ts = now
             return res
 
 class MsgRepository:
-    async def add_message(self, message: MsgSchema):
+    async def add_message(self, message: MsgSchema) -> None:
         async with async_session_maker() as session:
             stmt = insert(MsgModel).values(message.model_dump())
-
-            logger.info(msg='Message added to DB')
-
             await session.execute(stmt)
             await session.commit()
 
-    async def get_message(self, text: str):
+    async def get_by_request_id(self, request_id: str) -> list[MsgModel]:
+        """Все записи сообщений по одному обращению (по одному оператору — одна запись)."""
         async with async_session_maker() as session:
-            stmt = select(MsgModel).where(MsgModel.text == text)
+            stmt = select(MsgModel).where(MsgModel.request_id == request_id)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
 
-            msg = await session.execute(stmt)
-
-            return msg.fetchall()
-    
-    async def delete_message(self, text: str):
+    async def delete_by_request_id(self, request_id: str) -> None:
         async with async_session_maker() as session:
-            stmt = delete(MsgModel).where(MsgModel.text == text)
-
+            stmt = delete(MsgModel).where(MsgModel.request_id == request_id)
             await session.execute(stmt)
             await session.commit()
 
