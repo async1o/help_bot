@@ -70,5 +70,5 @@ class SupportService:
         await asyncio.gather(*[delete_one(r) for r in rows])
         await self._msg_repo.delete_by_request_id(request_id)
 
-        DialogService.start_dialog(operator_id=operator_id, sender_id=sender_id)
+        await DialogService.start_dialog(operator_id=operator_id, sender_id=sender_id)
         return sender_id

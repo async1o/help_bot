@@ -20,7 +20,8 @@ _support = SupportService()
 @router.message(IsUserInDialog())
 async def forward_user_message_to_operator(message: Message):
     """Пересылает сообщение пользователя оператору, когда идёт диалог."""
-    operator_id = DialogService.get_operator_for_user(str(message.from_user.id))
+    sender_id = str(message.from_user.id)
+    operator_id = await DialogService.get_operator_for_user(sender_id)
     if not operator_id:
         return
     try:
@@ -35,13 +36,24 @@ async def forward_user_message_to_operator(message: Message):
 
 @router.message(F.text == '/start')
 async def start(message: Message):
-    user_schema = UserSchema(user_id=str(message.from_user.id),
-                             full_name=message.from_user.full_name,
-                             is_operator=False,
-                             is_admin=False)
-    
-    await UserRepository().add_user(user_schema)
-    await message.answer(text=f'Здравствуйте {message.from_user.full_name}\nЕсли хотите задать вопрос напишите <b>/sos</b>')
+    user_id = str(message.from_user.id)
+    existing_user = await UserRepository().get_user_by_id(user_id)
+
+    if existing_user is None:
+        # Новый пользователь — регистрируем
+        user_schema = UserSchema(
+            user_id=user_id,
+            full_name=message.from_user.full_name,
+            is_operator=False,
+            is_admin=False
+        )
+        await UserRepository().add_user(user_schema)
+        greeting = f'Здравствуйте, {message.from_user.full_name}!'
+    else:
+        # Уже зарегистрирован — обновляем только имя
+        greeting = f'С возвращением, {message.from_user.full_name}!'
+
+    await message.answer(text=f'{greeting}\nЕсли хотите задать вопрос напишите <b>/sos</b>')
 
 @router.message(F.text == '/sos')
 async def start_sos(message: Message, state: FSMContext):

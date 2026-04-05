@@ -8,7 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 
 from src.utils.config import settings
 from src.handlers import main_router
-from src.utils.argparser import add_args
+from src.db.db import create_tables_if_not_exists
 from src.utils.commands_menu import get_keyboard_for_menu
 
 logging.basicConfig(level=logging.INFO)
@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 async def main():
     session = AiohttpSession()
-
-    await add_args()
 
     bot = Bot(
         token=settings.TOKEN,
@@ -27,6 +25,9 @@ async def main():
 
     dp = Dispatcher()
     dp.include_router(main_router)
+
+    # Авто-создание таблиц если не существуют
+    await create_tables_if_not_exists()
 
     #await bot.set_my_commands(commands=get_keyboard_for_menu(), scope=BotCommandScopeAllPrivateChats())
 

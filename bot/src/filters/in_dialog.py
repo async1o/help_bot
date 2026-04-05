@@ -10,11 +10,15 @@ class IsOperatorInDialog(BaseFilter):
     """Сообщение от оператора, у которого есть активный диалог."""
 
     async def __call__(self, message: Message) -> bool:
-        return message.from_user and DialogService.is_operator_in_dialog(str(message.from_user.id))
+        if not message.from_user:
+            return False
+        return await DialogService.is_operator_in_dialog(str(message.from_user.id))
 
 
 class IsUserInDialog(BaseFilter):
     """Сообщение от пользователя, у которого есть активный диалог с оператором."""
 
     async def __call__(self, message: Message) -> bool:
-        return message.from_user and DialogService.is_user_in_dialog(str(message.from_user.id))
+        if not message.from_user:
+            return False
+        return await DialogService.is_user_in_dialog(str(message.from_user.id))

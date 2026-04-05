@@ -2,12 +2,15 @@ import logging
 import time
 
 from sqlalchemy import insert, select, update, delete
+from sqlalchemy.exc import IntegrityError
 
 from src.db.db import async_session_maker
 from src.models.users import UserModel
 from src.models.messages import MsgModel
+from src.models.dialogs import DialogModel
 from src.schemas.users import UserSchema
 from src.schemas.messages import MsgSchema
+from src.schemas.dialogs import DialogSchema
 from src.utils.config import settings
 
 logger = logging.getLogger('Repositories')
@@ -25,21 +28,28 @@ class UserRepository:
 
     async def add_user(self, user: UserSchema):
         async with async_session_maker() as session:
-            
+
             stmt = insert(UserModel).values(user.model_dump())
-            
-            
+
             try:
                 await session.execute(stmt)
                 await session.commit()
                 logger.info(msg='User added to DB')
-            except:
-                pass
+            except IntegrityError as e:
+                logger.warning('User %s already exists (IntegrityError): %s', user.user_id, e)
+            except Exception as e:
+                logger.error('Unexpected error adding user %s: %s', user.user_id, e)
     
 class AdminRepository:
     _operators_cache: list | None = None
     _operators_cache_ts: float = 0
     _OPERATORS_CACHE_TTL = 30.0  # секунд
+
+    @classmethod
+    def invalidate_operators_cache(cls) -> None:
+        """Принудительно сбросить кэш операторов."""
+        cls._operators_cache = None
+        cls._operators_cache_ts = 0
 
     async def add_start_admins(self):
         for admin_id in settings.ADMINS.split(','):
@@ -67,7 +77,7 @@ class AdminRepository:
             await session.execute(stmt)
             await session.commit()
         if operator:
-            AdminRepository._operators_cache = None
+            AdminRepository.invalidate_operators_cache()
 
     async def get_all_operators(self) -> list:
         now = time.monotonic()
@@ -102,4 +112,76 @@ class MsgRepository:
             stmt = delete(MsgModel).where(MsgModel.request_id == request_id)
             await session.execute(stmt)
             await session.commit()
+
+
+class DialogRepository:
+    """Репозиторий для управления активными диалогами (персистентное хранение в БД)."""
+
+    async def add_dialog(self, dialog: DialogSchema) -> None:
+        """Начать диалог. Если у оператора или sender уже есть диалог — он заменяется."""
+        async with async_session_maker() as session:
+            # Удаляем существующий диалог для этого оператора
+            await session.execute(
+                delete(DialogModel).where(DialogModel.operator_id == dialog.operator_id)
+            )
+            # Удаляем существующий диалог для этого sender (если он в другом диалоге)
+            await session.execute(
+                delete(DialogModel).where(DialogModel.sender_id == dialog.sender_id)
+            )
+            stmt = insert(DialogModel).values(dialog.model_dump())
+            await session.execute(stmt)
+            await session.commit()
+            logger.info('Dialog added: operator=%s, sender=%s', dialog.operator_id, dialog.sender_id)
+
+    async def remove_by_operator(self, operator_id: str) -> str | None:
+        """Удалить диалог по оператору. Возвращает sender_id или None."""
+        async with async_session_maker() as session:
+            stmt = select(DialogModel.sender_id).where(DialogModel.operator_id == operator_id)
+            result = await session.execute(stmt)
+            sender_id = result.scalar_one_or_none()
+            if sender_id:
+                await session.execute(
+                    delete(DialogModel).where(DialogModel.operator_id == operator_id)
+                )
+                await session.commit()
+                return sender_id
+            return None
+
+    async def remove_by_user(self, sender_id: str) -> str | None:
+        """Удалить диалог по пользователю. Возвращает operator_id или None."""
+        async with async_session_maker() as session:
+            stmt = select(DialogModel.operator_id).where(DialogModel.sender_id == sender_id)
+            result = await session.execute(stmt)
+            operator_id = result.scalar_one_or_none()
+            if operator_id:
+                await session.execute(
+                    delete(DialogModel).where(DialogModel.sender_id == sender_id)
+                )
+                await session.commit()
+                return operator_id
+            return None
+
+    async def get_user_by_operator(self, operator_id: str) -> str | None:
+        async with async_session_maker() as session:
+            stmt = select(DialogModel.sender_id).where(DialogModel.operator_id == operator_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    async def get_operator_by_user(self, sender_id: str) -> str | None:
+        async with async_session_maker() as session:
+            stmt = select(DialogModel.operator_id).where(DialogModel.sender_id == sender_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    async def is_operator_in_dialog(self, operator_id: str) -> bool:
+        async with async_session_maker() as session:
+            stmt = select(DialogModel.id).where(DialogModel.operator_id == operator_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none() is not None
+
+    async def is_user_in_dialog(self, sender_id: str) -> bool:
+        async with async_session_maker() as session:
+            stmt = select(DialogModel.id).where(DialogModel.sender_id == sender_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none() is not None
 
