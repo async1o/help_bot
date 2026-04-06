@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import datetime
 
 from sqlalchemy import insert, select, update, delete
 from sqlalchemy.exc import IntegrityError
@@ -8,9 +9,13 @@ from src.db.db import async_session_maker
 from src.models.users import UserModel
 from src.models.messages import MsgModel
 from src.models.dialogs import DialogModel
+from src.models.payments import PaymentModel
+from src.models.subscriptions import SubscriptionModel
 from src.schemas.users import UserSchema
 from src.schemas.messages import MsgSchema
 from src.schemas.dialogs import DialogSchema
+from src.schemas.payments import PaymentSchema
+from src.schemas.subscriptions import SubscriptionSchema
 from src.utils.config import settings
 
 logger = logging.getLogger('Repositories')
@@ -184,4 +189,99 @@ class DialogRepository:
             stmt = select(DialogModel.id).where(DialogModel.sender_id == sender_id)
             result = await session.execute(stmt)
             return result.scalar_one_or_none() is not None
+
+
+class PaymentRepository:
+    """Репозиторий для управления платежами."""
+
+    async def add_payment(self, payment: PaymentSchema) -> None:
+        async with async_session_maker() as session:
+            stmt = insert(PaymentModel).values(payment.model_dump())
+            try:
+                await session.execute(stmt)
+                await session.commit()
+                logger.info('Payment recorded: user=%s, charge=%s', payment.user_id, payment.telegram_payment_charge_id)
+            except IntegrityError:
+                await session.rollback()
+                logger.warning('Payment %s already exists (IntegrityError), skipping', payment.telegram_payment_charge_id)
+
+    async def activate_user_subscription(self, user_id: str) -> None:
+        """Активировать подписку и отметить что пользователь когда-либо оплачивал."""
+        async with async_session_maker() as session:
+            stmt = update(UserModel).where(UserModel.user_id == user_id).values(
+                is_paid=True,
+                has_paid_ever=True,
+                paid_at=datetime.utcnow()
+            )
+            await session.execute(stmt)
+            await session.commit()
+            logger.info('Subscription activated for user=%s (has_paid_ever=True)', user_id)
+
+
+class SubscriptionRepository:
+    """Репозиторий для управления подписками пользователей на канал."""
+
+    async def get_subscription(self, user_id: str) -> SubscriptionModel | None:
+        """Получить подписку пользователя."""
+        async with async_session_maker() as session:
+            stmt = select(SubscriptionModel).where(SubscriptionModel.user_id == user_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    async def create_or_update_subscription(self, user_id: str, is_subscribed: bool) -> SubscriptionModel:
+        """Создать или обновить подписку. Возвращает объект подписки."""
+        async with async_session_maker() as session:
+            existing = await self.get_subscription(user_id)
+            if existing:
+                # Обновляем существующую запись
+                updates = {
+                    'is_subscribed': is_subscribed,
+                    'last_checked_at': datetime.utcnow(),
+                }
+                if is_subscribed:
+                    updates['subscribed_at'] = datetime.utcnow()
+                    updates['unsubscribed_at'] = None
+                else:
+                    updates['unsubscribed_at'] = datetime.utcnow()
+
+                stmt = update(SubscriptionModel).where(SubscriptionModel.user_id == user_id).values(**updates)
+                await session.execute(stmt)
+                await session.commit()
+
+                # Возвращаем обновлённый объект
+                stmt = select(SubscriptionModel).where(SubscriptionModel.user_id == user_id)
+                result = await session.execute(stmt)
+                return result.scalar_one()
+            else:
+                # Создаём новую запись
+                now = datetime.utcnow()
+                sub = SubscriptionSchema(
+                    user_id=user_id,
+                    is_subscribed=is_subscribed,
+                    subscribed_at=now if is_subscribed else None,
+                    unsubscribed_at=None if is_subscribed else now,
+                    last_checked_at=now,
+                )
+                stmt = insert(SubscriptionModel).values(sub.model_dump())
+                await session.execute(stmt)
+                await session.commit()
+
+                stmt = select(SubscriptionModel).where(SubscriptionModel.user_id == user_id)
+                result = await session.execute(stmt)
+                return result.scalar_one()
+
+    async def mark_subscribed(self, user_id: str) -> SubscriptionModel:
+        """Отметить пользователя как подписанного."""
+        return await self.create_or_update_subscription(user_id, is_subscribed=True)
+
+    async def mark_unsubscribed(self, user_id: str) -> SubscriptionModel:
+        """Отметить пользователя как отписавшегося."""
+        return await self.create_or_update_subscription(user_id, is_subscribed=False)
+
+    async def is_user_subscribed(self, user_id: str) -> bool:
+        """Проверить, подписан ли пользователь на канал."""
+        sub = await self.get_subscription(user_id)
+        if sub is None:
+            return False
+        return sub.is_subscribed
 
