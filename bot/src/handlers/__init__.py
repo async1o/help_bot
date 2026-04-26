@@ -1,4 +1,6 @@
-__all__ = ['main_router',]
+__all__ = [
+    "main_router",
+]
 
 from aiogram import Router
 

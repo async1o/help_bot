@@ -32,3 +32,8 @@ dependencies = [
     "yarl==1.22.0",
     "yoomoney>=2.0.0",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+]

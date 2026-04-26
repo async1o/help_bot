@@ -8,10 +8,13 @@ class SosStates(StatesGroup):
 
 class PaymentStates(StatesGroup):
     """Состояния для процесса оплаты через YooMoney."""
+
     waiting_payment = State()  # Ожидание оплаты — пользователь перешёл по ссылке
 
 
 class SubscriptionStates(StatesGroup):
     """Состояния для проверки подписки на канал."""
-    waiting_subscription = State()  # Ожидание подписки — пользователь должен вернуться в канал
 
+    waiting_subscription = (
+        State()
+    )  # Ожидание подписки — пользователь должен вернуться в канал

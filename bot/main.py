@@ -16,19 +16,15 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-async def main():
-    # Настройка прокси для обхода блокировок
-    session_kwargs = {}
-    if settings.is_proxy_enabled:
-        session_kwargs['proxy'] = settings.PROXY_URL
-        logger.info('Proxy enabled')
 
-    session = AiohttpSession(**session_kwargs)
+async def main():
+
+    session = AiohttpSession()
 
     bot = Bot(
         token=settings.TOKEN,
         session=session,
-        default=DefaultBotProperties(parse_mode='HTML')
+        default=DefaultBotProperties(parse_mode="HTML"),
     )
 
     dp = Dispatcher()
@@ -39,14 +35,15 @@ async def main():
 
     # Удаляем webhook (если был установлен ранее), используем polling
     await bot.delete_webhook()
-    logger.info('Webhook deleted (polling mode)')
+    logger.info("Webhook deleted (polling mode)")
 
     try:
         await dp.start_polling(bot)
     except Exception as e:
-        logger.error('Polling error: %s', e)
+        logger.error("Polling error: %s", e)
     finally:
         await bot.session.close()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     asyncio.run(main())

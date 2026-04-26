@@ -2,6 +2,7 @@ from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel
 
+
 class UserSchema(BaseModel):
     user_id: str
     full_name: Optional[str] = None

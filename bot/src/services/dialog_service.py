@@ -13,7 +13,9 @@ class DialogService:
     async def start_dialog(operator_id: str, sender_id: str) -> None:
         """Начать диалог. Если пользователь или оператор уже в другом диалоге — тот завершается."""
         repo = DialogRepository()
-        await repo.add_dialog(DialogSchema(operator_id=operator_id, sender_id=sender_id))
+        await repo.add_dialog(
+            DialogSchema(operator_id=operator_id, sender_id=sender_id)
+        )
 
     @staticmethod
     async def end_dialog(operator_id: str) -> Optional[str]:

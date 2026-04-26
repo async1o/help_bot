@@ -1,4 +1,6 @@
-__all__ = ['messages_router',]
+__all__ = [
+    "messages_router",
+]
 
 from aiogram import Router
 
