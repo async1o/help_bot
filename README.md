@@ -42,7 +42,6 @@ python main.py
 ```
 ├── bot/                    # Исходный код бота
 │   ├── main.py             # Точка входа (запуск бота)
-│   ├── test_yoomoney.py    # Тест YooMoney токена
 │   └── src/
 │       ├── db/             # База данных (подключение, репозитории)
 │       ├── filters/        # aiogram фильтры
